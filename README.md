@@ -1,50 +1,96 @@
-# On Investigating the Conservative Property of Score-Based Generative Models
-[![arXiv](https://img.shields.io/badge/arXiv-2209.12753-b31b1b.svg?style=flat-square)](https://arxiv.org/abs/2209.12753)
-[![YouTube](https://img.shields.io/badge/YouTube-ff0101?logo=youtube&style=flat-square)](https://youtu.be/8JpeVbwRcyM)
+# Decoupling the Conservativeness Penalty from the Symmetric Jacobian in Score-Based Models
 
-This repository contains the code implementation of the experiments presented in the paper [*On Investigating the Conservative Property of Score-Based Generative Models*](https://arxiv.org/abs/2209.12753).
+Code for the **Bilinear Symmetry Penalty (BSP)**, a regularizer that pushes a score network towards
+a conservative vector field, that is, towards a symmetric Jacobian.
 
-<img src="assets/training.png" alt="training" width="750"/>
+Let J be the Jacobian of the score network and B = J − Jᵀ its antisymmetric part. A conservative score
+has B = 0. The quasi-conservative estimator of QCSBM penalizes ‖B‖²_F through a Hutchinson-type estimator whose
+variance depends on the symmetric part of J. BSP instead estimates ‖B‖²_F with the bilinear form (uᵀBv)² of two
+independent random probes u and v. This estimator has the same mean, and its variance no longer carries the
+interaction between the symmetric and antisymmetric parts of the Jacobian.
 
-The project page is available at: <https://chen-hao-chao.github.io/qcsbm/>
+The code builds on [QCSBM](https://github.com/chen-hao-chao/qcsbm) (Chao et al., ICML 2023) and
+[score_sde_pytorch](https://github.com/yang-song/score_sde_pytorch) (Song et al., ICLR 2021). See `NOTICE`.
 
-## Directory Structure
-- Use the code in [qcsbm/gaussian_example](/gaussian_example) to reproduce the experimental results presented in **Section 3.1**.
-- Use the code in [qcsbm/2d_examples](/2d_examples) to reproduce the experimental results presented in **Section 3.2**.
-- Use the code in [qcsbm/real_world](/real_world) to reproduce the experimental results presented in **Section 5**.
-- Use the code in [qcsbm/autoencoder_example](/autoencoder_example) to reproduce the experimental results presented in **Section 6**.
+## Layout
 
-## Dependencies
+| Path | Content |
+|---|---|
+| `2d_examples/` | Two-dimensional experiments (checkerboard, spiral, eight Gaussians) |
+| `real_world/` | CIFAR-10 fine-tuning of a pretrained NCSN++ and evaluation |
+| `*/losses.py` | The regularizers, including the BSP estimator |
 
-**(Optional)** Launch a docker container:
+## Installation
 
-```sh
-# assume the current directory is the root of this repository
-docker run --rm -it --gpus all --ipc=host -v$(pwd):/app nvcr.io/nvidia/pytorch:20.12-py3
-# inside the docker container, run:
-cd /app
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Install the necessary Python packages through the following commands:
+FID and IS evaluation (`real_world/run_lib_evaluation_fidis.py`) additionally needs
+`pip install tensorflow tensorflow-gan tensorflow-hub`.
+The CUDA kernels in `real_world/op/` are compiled on first import, which requires `ninja` and a CUDA toolchain.
 
-```
-pip install -r requirements.txt --use-feature=2020-resolver
+## Two-dimensional experiments
+
+Methods are selected through the configuration file: `csbm`, `usbm`, `qcsbm` and `bsp`.
+The configuration `bsp_jvp` is an equivalent implementation of BSP based on Jacobian-vector products.
+
+```bash
+cd 2d_examples
+
+# train
+python main.py --workdir checkerboard_bsp --mode train --config configs/bsp/checkerboard_config.py
+
+# evaluate the score error, with the last saved checkpoint
+python main.py --workdir checkerboard_bsp --mode eval --type score_err \
+  --config configs/bsp/checkerboard_config.py \
+  --restore $(ls -v results/checkerboard_bsp/checkpoints/*.pth | tail -1)
 ```
 
-## Citing QCSBM
-If you find this code useful, please consider citing our paper.
-```bib
-@inproceedings{chao2023investigating,
-      title={On Investigating the Conservative Property of Score-Based Generative Models}, 
-      author={Chen-Hao Chao and Wei-Fang Sun and Bo-Wun Cheng and Chun-Yi Lee},
-      year={2023},
-      booktitle={International Conference on Machine Learning (ICML)},
-}
+`--type` accepts `nll`, `score_err` and `sampling`.
+
+To train and evaluate several methods on several datasets in one call, and collect Asym, NAsym, score error,
+NLL, NFE, precision and recall in a single table (`summary.csv`):
+
+```bash
+python run_experiments.py --methods usbm qcsbm bsp --datasets checkerboard spiral_2 gaussian_8
 ```
+
+`--eval_points` sets the number of points used to compare with the oracle score (5000 by default), and
+`--seeds` the random seeds.
+
+## CIFAR-10
+
+We fine-tune the pretrained deep continuous NCSN++ of Song et al.
+([`ve/cifar10_ncsnpp_deep_continuous`](https://drive.google.com/drive/folders/11s6A_xM7qiztdj8AHQWqaIAUSC3I7uX2?usp=sharing))
+with the BSP regularizer.
+
+```bash
+cd real_world
+
+# fine-tune
+python main.py --config configs/bsp_ncsn/training/cifar10_ncsnpp_deep_continuous.py \
+  --reg_type bsp --bs 128 --workdir bsp_cifar10 --restore checkpoint.pth
+
+# asymmetry of the learned score (Asym / NAsym)
+python run_lib_evaluation_asym.py --config configs/bsp_ncsn/evaluation/eval_cifar10_config.py \
+  --workdir bsp_cifar10 --checkpoint_idx N --bs 2500 --calculate
+
+# negative log-likelihood
+python run_lib_evaluation_nll.py --config configs/bsp_ncsn/evaluation/eval_cifar10_config.py \
+  --workdir bsp_cifar10 --checkpoint_idx N --bs 2500 --calculate
+```
+
+`--checkpoint_idx N` selects the checkpoint `checkpoint_N` saved in `bsp_cifar10/checkpoints`.
+`--balancing_fac` sets the coefficient λ of the penalty, and `--bsp_std_weighting` multiplies it by the squared
+noise level (off by default).
+
+Sampling and the sampling metrics use `run_lib_sampling.py` and `run_lib_evaluation_fidis.py`, with the same options
+as in the [QCSBM repository](https://github.com/chen-hao-chao/qcsbm/tree/master/real_world).
 
 ## License
 
-To maintain reproducibility, we freezed the following repository and list its license below:
-- [yang-song/score_sde_pytorch](https://github.com/yang-song/score_sde_pytorch) (at commit 1618dde) is licensed under the [Apache-2.0 License](https://github.com/yang-song/score_sde_pytorch/blob/main/LICENSE)
-
-Further changes based on the repository above are licensed under the [Apache-2.0 License](LICENSE).
+Apache License 2.0, see `LICENSE`. Parts of the code originate from
+[QCSBM](https://github.com/chen-hao-chao/qcsbm) and
+[score_sde_pytorch](https://github.com/yang-song/score_sde_pytorch) (Copyright 2020 The Google Research Authors).
