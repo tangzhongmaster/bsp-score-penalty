@@ -1,0 +1,15 @@
+This repository contains code derived from:
+
+- QCSBM (https://github.com/chen-hao-chao/qcsbm), Chao et al., ICML 2023,
+  licensed under the Apache License 2.0.
+- score_sde_pytorch (https://github.com/yang-song/score_sde_pytorch),
+  Copyright 2020 The Google Research Authors, licensed under the Apache License 2.0.
+
+Modified files keep their original license headers.
+
+Changes made to the original code:
+
+- Added the Bilinear Symmetry Penalty (BSP) regularizer in the loss files (losses.py).
+- Added the configurations configs/bsp, configs/bsp_jvp (2d_examples) and configs/bsp_ncsn (real_world).
+- Added run_experiments.py to train and evaluate several methods and datasets in one call.
+- Replaced the TensorFlow-based data loading by NumPy (2d_examples) and torchvision (real_world).
